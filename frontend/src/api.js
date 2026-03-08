@@ -39,8 +39,8 @@ export const api = {
     getSdgImpact: () => fetcher('/api/sdg-impact'),
 
     // ── Round 2: RAPTOR Route Planning ───────────────────────────────────
-    planRoute: (origin, dest, hour = 8) =>
-        fetcher(`/api/route/plan?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&hour=${hour}`),
+    planRoute: (origin, dest, time_min = 480) =>
+        fetcher(`/api/route/plan?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&time_min=${time_min}`),
     searchStops: (q) => fetcher(`/api/route/stops/search?q=${encodeURIComponent(q)}`),
 
     // ── Round 2: Demand Heatmap ──────────────────────────────────────────

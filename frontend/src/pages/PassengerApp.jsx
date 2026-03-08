@@ -12,10 +12,10 @@ const CROWD_COLORS = { low: '#00a86b', medium: '#e88c00', high: '#e53935' };
 const CROWD_LABELS = { low: 'Low', medium: 'Medium', high: 'High' };
 
 const TIME_PRESETS = [
-    { label: 'Now', hour: new Date().getHours(), icon: <Clock size={16}/> },
-    { label: '8AM Peak', hour: 8, icon: <Sunrise size={16}/> },
-    { label: '6PM Peak', hour: 18, icon: <Sunset size={16}/> },
-    { label: 'Weekend 11', hour: 11, icon: <Trees size={16}/> },
+    { label: 'Now', get timeMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }, icon: <Clock size={16}/> },
+    { label: '8AM Peak', timeMin: 8 * 60, icon: <Sunrise size={16}/> },
+    { label: '6PM Peak', timeMin: 18 * 60, icon: <Sunset size={16}/> },
+    { label: 'Weekend 11', timeMin: 11 * 60, icon: <Trees size={16}/> },
 ];
 
 function MapFlyTo({ center }) {
@@ -71,6 +71,16 @@ function StepCard({ step, color }) {
                         </span>
                     )}
                 </div>
+                {step.next_departures && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${col}30`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 10, color: '#4a5f80', width: '100%', marginBottom: 2 }}>Upcoming Departures (Est. Fare: ₹{step.fare || 15}):</div>
+                        {step.next_departures.map((dep, idx) => (
+                            <div key={idx} style={{ background: '#f0f4ff', padding: '4px 8px', borderRadius: 6, fontSize: 10, color: '#1a6cf5', fontWeight: 600 }}>
+                                {dep.time} (in {dep.in_min}m)
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 900, color: col, fontFamily: 'monospace' }}>
@@ -165,8 +175,8 @@ export default function PassengerApp() {
         setError('');
         setResult(null);
         try {
-            const hour = TIME_PRESETS[timePreset].hour;
-            const res = await api.planRoute(origin, dest, hour);
+            const timeMin = TIME_PRESETS[timePreset].timeMin;
+            const res = await api.planRoute(origin, dest, timeMin);
             if (res.error) { setError(res.error); return; }
             setResult(res);
 

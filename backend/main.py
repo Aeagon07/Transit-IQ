@@ -408,6 +408,7 @@ def api_alerts():
 def api_route_plan(
     origin:      str = "Shivaji Nagar",
     destination: str = "Hinjawadi Maan Phase 3",
+    time_min:    Optional[int] = None,
     hour:        int = 8,
 ):
     """
@@ -415,12 +416,15 @@ def api_route_plan(
     Uses Round-Based Public Transit Optimized Router (Delling et al., 2012).
     Falls back to A* with Haversine heuristic if no transit path found.
     """
+    if time_min is None:
+        time_min = max(5, min(23, hour)) * 60
+
     with _lock:
         result = raptor_search(
             origin_name=origin,
             dest_name=destination,
             routes=_routes,
-            departure_hour=max(5, min(23, hour)),
+            departure_time_min=time_min,
             stop_index=_stop_index if _stop_index else None,
         )
     return result

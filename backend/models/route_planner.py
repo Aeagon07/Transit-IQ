@@ -119,7 +119,7 @@ def raptor_search(
     origin_name:      str,
     dest_name:        str,
     routes:           List[Dict],
-    departure_hour:   int = 8,
+    departure_time_min: int = 480,
     stop_index:       Optional[Dict] = None,
 ) -> Dict:
     """
@@ -149,7 +149,7 @@ def raptor_search(
     if origin["name"] == dest["name"]:
         return _error_result(origin_name, dest_name, "Origin equals destination")
 
-    dep_min = departure_hour * 60  # Convert to minutes since midnight
+    dep_min = departure_time_min
 
     # ── τ[k][stop_name] = earliest arrival in minutes ──────────────────────
     INF = float("inf")
@@ -376,6 +376,16 @@ def _reconstruct_path(
                 "distance_m":   dist,
             })
         else:
+            freq_min = 15
+            wait_min = max(2, int(freq_min / 2))
+            board_t = prev_arrive_t + wait_min
+            
+            departures = [
+                {"in_min": wait_min + i * freq_min, "time": _fmt_time(board_t + i * freq_min)}
+                for i in range(3)
+            ]
+            fare = max(10, min(50, int(duration * 1.5)))
+            
             steps.append({
                 "step":         step_num,
                 "mode":         "bus",
@@ -388,6 +398,8 @@ def _reconstruct_path(
                 "duration_min": duration,
                 "crowd_level":  "medium",
                 "crowd_pct":    65,
+                "next_departures": departures,
+                "fare": fare,
             })
         step_num += 1
         prev_arrive_t = arrive_t
