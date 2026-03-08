@@ -203,9 +203,9 @@ export default function OperatorDashboard() {
 
     const TabBtn = ({ id, label, badge }) => (
         <button onClick={() => setTab(id)} style={{
-            flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, borderRadius: 7, transition: 'all 0.15s',
+            flex: '1 0 auto', padding: '8px 10px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, borderRadius: 7, transition: 'all 0.15s',
             background: tab === id ? '#1a6cf5' : 'transparent', color: tab === id ? '#fff' : '#9aafc4',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, whiteSpace: 'nowrap'
         }}>
             {label}
             {badge > 0 && <span style={{ background: tab === id ? 'rgba(255,255,255,0.3)' : '#e53935', color: '#fff', fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 99 }}>{badge}</span>}
