@@ -129,8 +129,10 @@ async def _sim_loop():
             from data.synthetic_gtfs import simulate_bus_tick
             with _lock:
                 _buses = [simulate_bus_tick(b, _routes, _forecasts) for b in _buses]
-            # Must refresh anomalies and recs after buses move!
-            _refresh_recs_and_alerts()
+            
+            # Offload heavy ML and OR-Tools CPU work to a background thread to prevent blocking FastAPI
+            loop = asyncio.get_event_loop()
+            loop.run_in_executor(None, _refresh_recs_and_alerts)
         except Exception as e:
             print(f"⚠️ Sim tick error: {e}")
 
