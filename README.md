@@ -23,10 +23,11 @@ Transit-IQ is a fully closed-loop, production-grade intelligent transit manageme
 A real-time command center for operators to monitor PMPML bus locations, route status, and congestion levels using interactive Leaflet maps.
 <img width="2559" height="1304" alt="image" src="https://github.com/user-attachments/assets/8d0ee70c-c495-412c-93aa-df2ab78d9c70" />
 
+
 > **Demand Heatmap on Live Map**
 
 <!-- Add screenshot of Demand Heatmap here -->
-<img width="2559" height="1296" alt="image" src="https://github.com/user-attachments/assets/292d6971-8b1a-4e0f-abc4-284e1349a638" />
+<img width="2559" height="1307" alt="image" src="https://github.com/user-attachments/assets/a796cb6f-924d-4037-b38a-e2e3d9fd1dff" />
 
 
 > **Passenger App — RAPTOR Journey Planner**
