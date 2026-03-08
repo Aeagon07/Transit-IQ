@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, LineChart, Line, Legend } from 'recharts';
 import api from '../api.js';
@@ -21,6 +21,15 @@ function busIcon(s) {
 }
 
 /* ── sub-components ── */
+function MapResizer({ leftOpen, rightOpen }) {
+    const map = useMap();
+    useEffect(() => {
+        const t = setTimeout(() => map.invalidateSize(), 300);
+        return () => clearTimeout(t);
+    }, [leftOpen, rightOpen, map]);
+    return null;
+}
+
 function CollapseBtn({ side, collapsed, onClick }) {
     return (
         <button onClick={onClick} style={{
@@ -403,6 +412,7 @@ export default function OperatorDashboard() {
                 </div>
 
                 <MapContainer center={[18.5204, 73.8567]} zoom={12} style={{ height: '100%', width: '100%', paddingTop: 42 }} zoomControl={false}>
+                    <MapResizer leftOpen={leftOpen} rightOpen={rightOpen} />
                     <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution='&copy; CARTO' maxZoom={19} />
                     {routes.filter(r => !selRoute || r.route_id === selRoute).map(r => {
                         const c = (r.stop_coordinates || []).map(s => [s.lat, s.lon]);
