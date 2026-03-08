@@ -51,6 +51,7 @@ export const api = {
 
     // ── Round 2: Multi-Objective Optimization ────────────────────────────
     getOptimizeTradeoffs: () => fetcher('/api/optimize/tradeoffs'),
+    applyStrategy: (strategyId) => fetch(`${BASE}/api/optimize/apply/${strategyId}`, { method: 'POST' }).then(r => r.json()),
 };
 
 export default api;

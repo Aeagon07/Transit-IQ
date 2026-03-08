@@ -794,16 +794,25 @@ export default function OperatorDashboard() {
                                                 </div>
                                             </div>
                                             <button
-                                                onClick={(e) => {
+                                                onClick={async (e) => {
                                                     const btn = e.currentTarget;
                                                     const originalText = btn.innerText;
                                                     const originalBg = btn.style.background;
-                                                    btn.innerText = '✅ Strategy Applied';
-                                                    btn.style.background = '#00a86b';
-                                                    setTimeout(() => {
-                                                        btn.innerText = originalText;
-                                                        btn.style.background = originalBg;
-                                                    }, 3000);
+                                                    try {
+                                                        btn.innerText = '⚙️ Applying...';
+                                                        await api.applyStrategy(st.id);
+                                                        btn.innerText = '✅ Strategy Applied';
+                                                        btn.style.background = '#00a86b';
+                                                    } catch (err) {
+                                                        console.error(err);
+                                                        btn.innerText = '❌ Failed';
+                                                        btn.style.background = '#e53935';
+                                                    } finally {
+                                                        setTimeout(() => {
+                                                            btn.innerText = originalText;
+                                                            btn.style.background = originalBg;
+                                                        }, 4000);
+                                                    }
                                                 }}
                                                 style={{ width: '100%', padding: '8px', marginTop: 10, borderRadius: 8, border: 'none', background: st.color, color: '#fff', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }}
                                             >

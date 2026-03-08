@@ -600,3 +600,60 @@ def _tick_all():
     for bid in list(_bus_states.keys()):
         _tick_one(bid)
     return [{k: v for k, v in s.items() if not k.startswith("_")} for s in _bus_states.values()]
+
+def add_bus_to_route(route_id: str):
+    """Dynamically spawn a new bus on a given route."""
+    global _bus_states
+    
+    route = next((r for r in ROUTES if r["route_id"] == route_id), None)
+    if not route:
+        return None
+        
+    stops_raw = route.get("stop_coordinates", [])
+    if len(stops_raw) < 2: # Used stored stops if present, else fallback
+        stops_raw = [PUNE_STOPS[s] for s in route.get("stops", []) if s in PUNE_STOPS]
+    if len(stops_raw) < 2:
+        return None
+        
+    stops = [{"name": s.get("name"), "lat": s.get("lat"), "lon": s.get("lon")} for s in stops_raw]
+    
+    bus_type = route.get("bus_type", "standard")
+    capacity  = BUS_CAPACITY.get(bus_type, 64)
+    category = route.get("category", "CITY")
+    if category == "BRT": speed_range = (25, 35)
+    elif category == "EXPRESS": speed_range = (22, 32)
+    else: speed_range = (16, 26)
+    
+    speed = random.uniform(*speed_range)
+    occ = random.randint(10, 40) # Init lightly loaded
+    
+    bid = f"PMP{random.randint(5000, 9999):04d}"
+    
+    # Spawn near the start of the route
+    s1, s2 = stops[0], stops[1]
+    lat, lon = _interpolate(s1["lat"], s1["lon"], s2["lat"], s2["lon"], 0.1)
+    
+    bus = {
+        "bus_id": bid,
+        "route_id": route["route_id"],
+        "route_name": route["route_name"],
+        "category": category,
+        "bus_type": bus_type,
+        "lat": lat, "lon": lon,
+        "speed_kmh": round(speed, 1),
+        "delay_min": 0,
+        "occupancy_pct": occ,
+        "passengers": int(occ / 100 * capacity),
+        "capacity": capacity,
+        "status": "on_time",
+        "next_stop": s2["name"],
+        "eta_next_stop_min": max(1, int((_haversine(lat, lon, s2["lat"], s2["lon"]) / speed) * 60)),
+        "_seg_idx": 0,
+        "_seg_t": 0.1,
+        "_stops": stops,
+        "_direction": 1,
+        "_speed_range": speed_range,
+        "_capacity": capacity,
+    }
+    _bus_states[bid] = bus
+    return {k: v for k, v in bus.items() if not k.startswith("_")}

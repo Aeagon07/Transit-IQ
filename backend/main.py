@@ -497,6 +497,38 @@ def api_optimize_tradeoffs():
     with _lock:
         return compute_tradeoffs(_recommendations, _buses, _routes)
 
+@app.post("/api/optimize/apply/{strategy_id}")
+def api_optimize_apply(strategy_id: str, background: BackgroundTasks):
+    from data.synthetic_gtfs import add_bus_to_route
+    with _lock:
+        pending_recs = [r for r in _recommendations if r.get("status") == "pending"]
+        
+        if strategy_id == "time_optimal":
+            recs_to_apply = pending_recs
+        elif strategy_id == "fuel_optimal":
+            n = max(0, round(len(pending_recs) * 0.25))
+            recs_to_apply = pending_recs[:n]
+        elif strategy_id == "balanced":
+            n = max(1, round(len(pending_recs) * 0.55))
+            recs_to_apply = pending_recs[:n]
+        else:
+            raise HTTPException(400, "Invalid strategy_id")
+
+        for r in recs_to_apply:
+            r["status"] = "approved"
+            r["approved_at"] = datetime.now().isoformat()
+            if r.get("buses_delta", 0) > 0:
+                for _ in range(r["buses_delta"]):
+                    add_bus_to_route(r["route_id"])
+                    
+        background.add_task(_refresh_recs_and_alerts)
+        
+        return {
+            "status": "success",
+            "strategy": strategy_id,
+            "recs_applied": len(recs_to_apply)
+        }
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #   JOURNEY PLANNING (legacy endpoint — kept for backward compat)
