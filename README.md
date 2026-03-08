@@ -128,8 +128,8 @@ Transit-IQ/
 └── README.md
 ```
 
-## 📜 UI/UX Philosophy
-Transit-IQ was overhauled to provide an enterprise-grade, high-trust user interface. It ditches standard boilerplate looks in favor of dynamic counting animations (`AnimatedNumber`), fluid tab switching, precision modal transitions, and curated dark-mode data visualizations to mirror top-tier modern data platforms.
+## 🏆 Conclusion
+Transit-IQ successfully bridges the gap between historical static transit routing and dynamic, live-intelligence operations. By utilizing robust machine learning methodologies (Prophet, Isolation Forests) coupled with hardened operations-research constraint processing (OR-Tools), we present a next-generation platform that scales with real-world infrastructure complexity. It transforms City Transit from a reactive entity into a proactive, adaptive, and highly trustworthy network for its citizens.
 
 ## 📄 License
 This open-source software is licensed under the [MIT License](LICENSE).
