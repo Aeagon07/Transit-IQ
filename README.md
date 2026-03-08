@@ -11,6 +11,24 @@ Transit-IQ is a comprehensive, open-source Intelligent Transit Management System
 
 ---
 
+## 📸 Platform Gallery
+
+<details>
+<summary>Click to view Transit-IQ Interface Screenshots</summary>
+<br>
+
+| Landing Page | Fleet Tracking |
+| :---: | :---: |
+| <img src="docs/hero.png" width="400" alt="Landing Page Hero"/> | <img src="docs/fleet.png" width="400" alt="Operator Dashboard Fleet"/> |
+
+| Demand Forecasting | Live Optimization |
+| :---: | :---: |
+| <img src="docs/demand.png" width="400" alt="Operator Dashboard Demand"/> | <img src="docs/optimize.png" width="400" alt="Operator Dashboard Optimize"/> |
+
+</details>
+
+---
+
 ## 🌟 Key Features
 
 ### 1. Facebook Prophet Demand Forecasting
