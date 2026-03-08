@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useMotionValue, useTransform, animate, useInView } from 'framer-motion';
 import { Users, Bus, Map, Banknote, Brain, Zap, CloudRain, Ticket, Search, Satellite, Github, Twitter, Mail } from 'lucide-react';
 
 const stats = [
@@ -20,6 +20,79 @@ const features = [
 ];
 
 const stack = ['FastAPI', 'Facebook Prophet', 'OR-Tools', 'React', 'Leaflet.js', 'Open-Meteo', 'SQLite', 'scikit-learn'];
+
+function AnimatedNumber({ value }) {
+    const match = value.match(/(₹)?([0-9.,]+)(M|\+)?/);
+    if (!match) return <span>{value}</span>;
+    
+    const prefix = match[1] || '';
+    const rawNumStr = match[2].replace(/,/g, '');
+    const isFloat = rawNumStr.includes('.');
+    const target = parseFloat(rawNumStr);
+    const suffix = match[3] || '';
+    
+    const count = useMotionValue(0);
+    const ref = useRef(null);
+    const inView = useInView(ref, { once: false, margin: "-50px" });
+    
+    useEffect(() => {
+        if (!inView) {
+            count.set(0);
+            return;
+        }
+
+        if (target === 0) {
+            count.set(0);
+            return;
+        }
+        
+        let timeoutId;
+        let isCancelled = false;
+        
+        const triggerNextIncrement = () => {
+            if (isCancelled) return;
+            const current = count.get();
+            if (current >= target) return;
+
+            // Random pause: 400ms to 1200ms
+            const delay = Math.random() * 800 + 400; 
+            timeoutId = setTimeout(() => {
+                if (isCancelled) return;
+                const remaining = target - count.get();
+                
+                // Jump by 10% to 25% of the total target
+                let step = target * (Math.random() * 0.15 + 0.10);
+                if (step > remaining || remaining < target * 0.08) {
+                    step = remaining; // Snap to the end if close
+                }
+                
+                const nextVal = count.get() + step;
+                
+                // Quickly slide to the new step (makes the "chunk" visible)
+                animate(count, nextVal, { duration: 0.4, ease: "easeOut" }).then(() => {
+                    triggerNextIncrement();
+                });
+            }, delay);
+        };
+        
+        triggerNextIncrement();
+        return () => {
+            isCancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [inView, target, count]);
+    
+    const formatted = useTransform(count, (latest) => {
+        if (target === 0) return prefix + "0" + suffix;
+        if (isFloat) {
+            return prefix + latest.toFixed(1) + suffix;
+        } else {
+            return prefix + Math.floor(latest).toLocaleString() + suffix;
+        }
+    });
+    
+    return <motion.span ref={ref}>{formatted}</motion.span>;
+}
 
 export default function LandingPage() {
     const WORDS = ["Intelligent", "Smart", "Predictive", "Adaptive"];
@@ -149,7 +222,7 @@ export default function LandingPage() {
                         transition={{ duration: 0.4, delay: i * 0.1 }}
                         style={{ minWidth: 170, alignItems: 'center', textAlign: 'center', gap: 6, flex: 1 }}>
                         <span style={{ color: '#1a6cf5', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 38 }}>{s.icon}</span>
-                        <span className="metric-value">{s.value}</span>
+                        <span className="metric-value"><AnimatedNumber value={s.value} /></span>
                         <span className="metric-label">{s.label}</span>
                     </motion.div>
                 ))}
