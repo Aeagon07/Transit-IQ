@@ -33,7 +33,8 @@ A real-time command center for operators to monitor PMPML bus locations, route s
 > **Passenger App — RAPTOR Journey Planner**
 
 <!-- Add screenshot of Passenger App here -->
-<img width="2559" height="1296" alt="image" src="https://github.com/user-attachments/assets/753edc74-f02c-40d7-a36b-814868ef06bf" />
+<img width="2559" height="1306" alt="image" src="https://github.com/user-attachments/assets/7eb9a845-b440-4258-96f0-26718cff58a2" />
+
 
 
 ---
