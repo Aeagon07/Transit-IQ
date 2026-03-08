@@ -185,7 +185,7 @@ export default function LandingPage() {
                 </p>
 
                 <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-                    <Link to="/operator">
+                    <Link to="/operator" style={{ textDecoration: 'none' }}>
                         <button style={{
                             padding: '14px 34px', fontSize: 15, fontWeight: 700,
                             background: '#fff', color: '#1a6cf5', borderRadius: 10,
@@ -196,7 +196,7 @@ export default function LandingPage() {
                             onMouseLeave={e => e.currentTarget.style.transform = 'none'}
                         ><Satellite size={16} /> Open Operator Dashboard</button>
                     </Link>
-                    <Link to="/passenger">
+                    <Link to="/passenger" style={{ textDecoration: 'none' }}>
                         <button style={{
                             padding: '14px 34px', fontSize: 15, fontWeight: 700,
                             background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 10,
