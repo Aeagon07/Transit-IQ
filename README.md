@@ -20,7 +20,8 @@ Transit-IQ is a fully closed-loop, production-grade intelligent transit manageme
 
 <!-- Add screenshot of Operator Dashboard here -->
 ### 1. Live Fleet Tracking
-A real-time command center for operators to monitor PMPML bus locations, route status, and congestion levels using interactive Leaflet maps.
+Comprehensive PMPML operator monitoring view showing all 312 active buses on an interactive Leaflet map. Operators can track every route's real-time status (On Time, Crowded, Delayed, Breakdown), monitor critical fleet metrics (buses crowded >85%, delayed >5min, breakdowns), inspect per-route traffic load distribution, and scroll through a live bus list sorted by speed and next stop — all in one unified command screen.
+
 <img width="2559" height="1304" alt="image" src="https://github.com/user-attachments/assets/8d0ee70c-c495-412c-93aa-df2ab78d9c70" />
 
 
