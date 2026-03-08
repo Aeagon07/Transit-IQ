@@ -9,6 +9,10 @@ Improvements over v1:
   - SDG Impact calculator  (/api/sdg-impact)
   - Enhanced fleet optimizer with multi-depot VRP
   - Anomaly detection with IsolationForest
+  [NEW] RAPTOR shortest-path routing (/api/route/plan)
+  [NEW] Demand heatmap (/api/demand/heatmap)
+  [NEW] Time-of-day demand profiles (/api/demand/timeofday)
+  [NEW] Multi-objective fleet optimization tradeoffs (/api/optimize/tradeoffs)
 """
 
 import os, json, random, asyncio, threading, math
@@ -28,6 +32,12 @@ from data.synthetic_gtfs    import get_buses, simulate_bus_tick, get_metro_lines
 from models.hybrid_forecaster  import get_forecaster
 from models.fleet_optimizer    import optimize_fleet
 from models.anomaly_detector   import update_and_detect, get_system_health
+from models.route_planner      import (
+    raptor_search, build_stop_index, compute_stop_demand,
+    get_timeofday_profile, compute_tradeoffs
+)
+
+_stop_index = {}   # populated at startup
 
 # ── App setup ──────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -61,7 +71,7 @@ _initialized = False
 # ══════════════════════════════════════════════════════════════════════════════
 @app.on_event("startup")
 async def startup():
-    global _routes, _buses, _weather, _forecasts, _initialized
+    global _routes, _buses, _weather, _forecasts, _initialized, _stop_index
     print("\n🚀 Transit-IQ v2 starting...")
 
     # Load real GTFS routes / stops
@@ -80,6 +90,10 @@ async def startup():
     # Init rule-based fallback forecasts immediately so UI isn't empty
     _forecasts.update(get_forecaster().get_all_forecasts(_routes, _weather))
 
+    # Build RAPTOR stop index from loaded routes (in-memory, no extra I/O)
+    _stop_index = build_stop_index(_routes)
+    print(f"   🗺️  RAPTOR stop index built: {len(_stop_index)} unique stops")
+
     # Train hybrid ML models in background (takes ~2min for 30 routes)
     threading.Thread(target=_blocking_train, daemon=True).start()
 
@@ -87,7 +101,7 @@ async def startup():
     asyncio.create_task(_sim_loop())
 
     _initialized = True
-    print(f"✅ Transit-IQ ready | Routes: {len(_routes)} | Buses: {len(_buses)}\n")
+    print(f"✅ Transit-IQ ready | Routes: {len(_routes)} | Buses: {len(_buses)} | Stops indexed: {len(_stop_index)}\n")
 
 
 def _blocking_train():
@@ -383,7 +397,109 @@ def api_alerts():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#   JOURNEY PLANNING
+#   ROUTE PLANNING — RAPTOR Algorithm
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/route/plan")
+def api_route_plan(
+    origin:      str = "Shivaji Nagar",
+    destination: str = "Hinjawadi Maan Phase 3",
+    hour:        int = 8,
+):
+    """
+    RAPTOR shortest-path routing between any two stops.
+    Uses Round-Based Public Transit Optimized Router (Delling et al., 2012).
+    Falls back to A* with Haversine heuristic if no transit path found.
+    """
+    with _lock:
+        result = raptor_search(
+            origin_name=origin,
+            dest_name=destination,
+            routes=_routes,
+            departure_hour=max(5, min(23, hour)),
+            stop_index=_stop_index if _stop_index else None,
+        )
+    return result
+
+
+@app.get("/api/route/stops/search")
+def api_stop_search(q: str = ""):
+    """Search stops by name — used for autocomplete in the journey planner UI."""
+    q_lower = q.strip().lower()
+    if len(q_lower) < 2:
+        return []
+    results = [
+        {"name": name, "lat": s["lat"], "lon": s["lon"],
+         "routes_count": len(s.get("routes_serving", []))}
+        for name, s in _stop_index.items()
+        if q_lower in name.lower()
+    ]
+    results.sort(key=lambda x: x["routes_count"], reverse=True)
+    return results[:15]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#   DEMAND HEATMAP
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/demand/heatmap")
+def api_demand_heatmap(hour: int = 8):
+    """
+    Per-stop demand scores for the heatmap layer on the Operator Dashboard map.
+    Returns top 200 demand stops with lat/lon, score 0–1, and demand level.
+    """
+    with _lock:
+        return compute_stop_demand(
+            stop_index=_stop_index,
+            forecasts=_forecasts,
+            routes=_routes,
+            hour=max(0, min(23, hour)),
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#   TIME-OF-DAY DEMAND COMPARISON
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/demand/timeofday/{route_id}")
+def api_timeofday(route_id: str):
+    """
+    Morning peak / evening peak / weekend / off-peak comparison for a route.
+    Includes full hourly Weekday vs Weekend profile for charting.
+    """
+    route = next((r for r in _routes if r["route_id"] == route_id), None)
+    if not route:
+        raise HTTPException(404, f"Route {route_id} not found")
+    with _lock:
+        return get_timeofday_profile(route, _forecasts)
+
+
+@app.get("/api/demand/timeofday")
+def api_timeofday_all():
+    """Time-of-day profiles for all loaded routes."""
+    with _lock:
+        return [get_timeofday_profile(r, _forecasts) for r in _routes]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#   MULTI-OBJECTIVE OPTIMIZATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/optimize/tradeoffs")
+def api_optimize_tradeoffs():
+    """
+    Multi-objective Pareto-optimal fleet strategy comparison:
+      1. Time-Optimal  — minimize wait time
+      2. Fuel-Optimal  — minimize fuel cost
+      3. Balanced      — Pareto-optimal multi-objective (recommended)
+    Returns radar chart data + strategy cards.
+    """
+    with _lock:
+        return compute_tradeoffs(_recommendations, _buses, _routes)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#   JOURNEY PLANNING (legacy endpoint — kept for backward compat)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/journey/plan")

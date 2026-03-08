@@ -37,6 +37,20 @@ export const api = {
 
     // ── Round 2: SDG Impact ──────────────────────────────────────────────
     getSdgImpact: () => fetcher('/api/sdg-impact'),
+
+    // ── Round 2: RAPTOR Route Planning ───────────────────────────────────
+    planRoute: (origin, dest, hour = 8) =>
+        fetcher(`/api/route/plan?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&hour=${hour}`),
+    searchStops: (q) => fetcher(`/api/route/stops/search?q=${encodeURIComponent(q)}`),
+
+    // ── Round 2: Demand Heatmap ──────────────────────────────────────────
+    getDemandHeatmap: (hour = 8) => fetcher(`/api/demand/heatmap?hour=${hour}`),
+
+    // ── Round 2: Time-of-Day Profiles ────────────────────────────────────
+    getTimeofdayProfile: (routeId) => fetcher(`/api/demand/timeofday/${routeId}`),
+
+    // ── Round 2: Multi-Objective Optimization ────────────────────────────
+    getOptimizeTradeoffs: () => fetcher('/api/optimize/tradeoffs'),
 };
 
 export default api;

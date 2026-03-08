@@ -1,150 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import api from '../api.js';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import api from '../api.js';
 
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({ iconRetinaUrl: null, iconUrl: null, shadowUrl: null });
+/* ── helpers ─────────────────────────────────────────────────────────────── */
+const MODE_ICONS = { walk: '🚶', bus: '🚌', transfer: '🔄', metro: '🚇' };
+const MODE_COLORS = { walk: '#9aafc4', bus: '#1a6cf5', transfer: '#e88c00', metro: '#6c3acb' };
+const CROWD_COLORS = { low: '#00a86b', medium: '#e88c00', high: '#e53935' };
+const CROWD_LABELS = { low: 'Low', medium: 'Medium', high: 'High' };
 
-const STOPS_LIST = [
-    'Shivajinagar Bus Stand', 'Hinjewadi Phase 1', 'Hinjewadi Phase 2', 'Hinjewadi Phase 3',
-    'Baner Road', 'Balewadi Stadium', 'Aundh', 'Kothrud Depot', 'Deccan Gymkhana',
-    'FC Road', 'Swargate', 'Hadapsar', 'Magarpatta City', 'Katraj', 'Warje',
-    'Pune Railway Station', 'Nigdi', 'Pimpri', 'Akurdi', 'Chinchwad',
-    'Viman Nagar', 'Kharadi IT Park', 'Koregaon Park', 'Kalyani Nagar',
-    'Yerwada', 'Ramwadi (Metro)', 'Civil Court', 'PCMC Bus Stand', 'Wakad',
+const TIME_PRESETS = [
+    { label: 'Now', hour: new Date().getHours(), icon: '🕐' },
+    { label: '8AM Peak', hour: 8, icon: '🌅' },
+    { label: '6PM Peak', hour: 18, icon: '🌆' },
+    { label: 'Weekend 11', hour: 11, icon: '🌳' },
 ];
 
-function CrowdIndicator({ pct }) {
-    const color = pct > 80 ? '#e53935' : pct > 60 ? '#e88c00' : '#00a86b';
-    const bg = pct > 80 ? '#fdecea' : pct > 60 ? '#fff7e0' : '#e2f9ef';
-    const label = pct > 80 ? 'Crowded' : pct > 60 ? 'Moderate' : 'Light';
-    return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div className="crowd-bar" style={{ width: 80 }}>
-                <div className="crowd-fill" style={{ width: `${pct}%`, background: color }} />
-            </div>
-            <span style={{
-                fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
-                background: bg, color,
-            }}>{label} {pct}%</span>
-        </div>
-    );
+function MapFlyTo({ center }) {
+    const map = useMap();
+    useEffect(() => { if (center) map.flyTo(center, 13, { duration: 1.2 }); }, [center, map]);
+    return null;
 }
 
-function ETACard({ dep }) {
+function StepCard({ step, color }) {
+    const ic = MODE_ICONS[step.mode] || '•';
+    const col = MODE_COLORS[step.mode] || '#9aafc4';
     return (
         <div style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '9px 12px',
-            background: '#f8fafc', border: '1px solid rgba(15,40,90,0.10)',
-            borderRadius: 10, marginBottom: 7,
+            display: 'flex', gap: 12, padding: '12px 16px', marginBottom: 8,
+            background: '#fff', borderRadius: 12,
+            border: `1px solid ${col}25`,
+            boxShadow: '0 1px 6px rgba(15,40,90,0.06)',
         }}>
-            <div style={{
-                width: 46, height: 46, borderRadius: 10, flexShrink: 0,
-                background: '#e8f0fe', border: '1px solid rgba(26,108,245,0.20)',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            }}>
-                <span style={{ fontSize: 18, fontWeight: 900, color: '#1a6cf5', fontFamily: 'JetBrains Mono,monospace', lineHeight: 1 }}>
-                    {dep.in_min}
-                </span>
-                <span style={{ fontSize: 9, color: '#9aafc4', textTransform: 'uppercase' }}>min</span>
-            </div>
-            <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b3e', marginBottom: 5 }}>
-                    Departs in {dep.in_min} min
-                </div>
-                <CrowdIndicator pct={dep.crowd === 'low' ? 28 : dep.crowd === 'medium' ? 56 : 85} />
-            </div>
-        </div>
-    );
-}
-
-function JourneyStep({ step, isLast }) {
-    const modeColor = step.mode === 'bus' ? '#1a6cf5' : step.mode === 'walk' ? '#00a86b' : '#6c3acb';
-    const modeBg = step.mode === 'bus' ? '#e8f0fe' : step.mode === 'walk' ? '#e2f9ef' : '#f0ebff';
-    return (
-        <div style={{ display: 'flex', gap: 14, position: 'relative', marginBottom: 4 }}>
-            {!isLast && (
+            {/* Icon column */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 36 }}>
                 <div style={{
-                    position: 'absolute', left: 20, top: 44, bottom: -4, width: 2,
-                    background: 'linear-gradient(180deg, rgba(15,40,90,0.15), rgba(15,40,90,0.02))',
-                }} />
-            )}
-            <div style={{
-                width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                background: modeBg, border: `2px solid ${modeColor}44`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18, zIndex: 1,
-            }}>
-                {step.mode === 'bus' ? '🚌' : step.mode === 'walk' ? '🚶' : step.mode === 'metro' ? '🚇' : '🚲'}
+                    width: 36, height: 36, borderRadius: '50%', background: `${col}18`,
+                    border: `2px solid ${col}55`, display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: 16, flexShrink: 0,
+                }}>{ic}</div>
+                <div style={{ width: 2, flex: 1, background: `${col}30`, borderRadius: 1, minHeight: 12 }} />
             </div>
-            <div style={{ flex: 1, paddingBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
-                    <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b3e' }}>{step.description}</div>
-                        {step.route && <div style={{ fontSize: 11, color: modeColor, fontWeight: 600, marginTop: 2 }}>{step.route}</div>}
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#4a5f80', fontFamily: 'JetBrains Mono,monospace', flexShrink: 0 }}>
-                        {(step.wait_min || 0) + step.duration_min}m
-                    </span>
+            {/* Content */}
+            <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b3e', marginBottom: 3 }}>
+                    {step.description}
                 </div>
-                {step.mode === 'bus' && step.next_departures && (
-                    <div style={{ marginTop: 6 }}>
-                        <div style={{ fontSize: 10, color: '#9aafc4', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
-                            Next Departures
-                        </div>
-                        {step.next_departures.map((d, i) => <ETACard key={i} dep={d} />)}
-                        {step.crowd_pct && (
-                            <div style={{ marginTop: 8 }}>
-                                <div style={{ fontSize: 10, color: '#9aafc4', marginBottom: 5, fontWeight: 600 }}>Current Load</div>
-                                <CrowdIndicator pct={step.crowd_pct} />
-                            </div>
-                        )}
-                    </div>
-                )}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#4a5f80' }}>
+                        ⏱ {step.duration_min}m
+                    </span>
+                    {step.distance_m && (
+                        <span style={{ fontSize: 11, color: '#9aafc4' }}>· {step.distance_m}m walk</span>
+                    )}
+                    {step.crowd_level && (
+                        <span style={{
+                            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+                            background: CROWD_COLORS[step.crowd_level] + '18',
+                            color: CROWD_COLORS[step.crowd_level],
+                            border: `1px solid ${CROWD_COLORS[step.crowd_level]}44`,
+                        }}>
+                            {CROWD_LABELS[step.crowd_level]} crowd
+                        </span>
+                    )}
+                    {step.from && step.to && step.from !== step.to && (
+                        <span style={{ fontSize: 10, color: '#9aafc4' }}>
+                            {step.from} → {step.to}
+                        </span>
+                    )}
+                </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 900, color: col, fontFamily: 'monospace' }}>
+                    {step.duration_min}m
+                </div>
+                <div style={{ fontSize: 9, color: '#c0ccdf', textTransform: 'uppercase' }}>
+                    {step.mode}
+                </div>
             </div>
         </div>
     );
 }
 
 function StopAutocomplete({ value, onChange, onSelect, placeholder }) {
+    const [suggestions, setSuggestions] = useState([]);
     const [open, setOpen] = useState(false);
-    const filtered = STOPS_LIST.filter(s => s.toLowerCase().includes(value.toLowerCase()) && s !== value).slice(0, 6);
+    const timer = useRef(null);
+
+    const handleChange = (e) => {
+        const v = e.target.value;
+        onChange(v);
+        clearTimeout(timer.current);
+        if (v.length < 2) { setSuggestions([]); setOpen(false); return; }
+        timer.current = setTimeout(async () => {
+            try {
+                const res = await api.searchStops(v);
+                setSuggestions(res);
+                setOpen(res.length > 0);
+            } catch { setSuggestions([]); setOpen(false); }
+        }, 280);
+    };
+
     return (
-        <div style={{ position: 'relative', flex: 1 }}>
+        <div style={{ position: 'relative' }}>
             <input
                 value={value}
-                onChange={e => { onChange(e.target.value); setOpen(true); }}
-                onFocus={() => setOpen(true)}
+                onChange={handleChange}
+                onFocus={() => suggestions.length > 0 && setOpen(true)}
+                onBlur={() => setTimeout(() => setOpen(false), 180)}
                 placeholder={placeholder}
                 style={{
-                    width: '100%', padding: '10px 14px', borderRadius: 8,
-                    background: '#f4f7fc', color: '#0d1b3e',
-                    border: '1px solid rgba(15,40,90,0.14)', fontSize: 13,
-                    outline: 'none', transition: 'border-color 0.18s',
+                    width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 13,
+                    border: '1.5px solid rgba(15,40,90,0.15)', outline: 'none',
+                    background: '#f8fafc', color: '#0d1b3e', boxSizing: 'border-box',
+                    fontFamily: 'Inter,sans-serif',
                 }}
-                onFocusCapture={e => e.target.style.borderColor = 'rgba(26,108,245,0.40)'}
-                onBlurCapture={e => { e.target.style.borderColor = 'rgba(15,40,90,0.14)'; setTimeout(() => setOpen(false), 200); }}
             />
-            {open && filtered.length > 0 && (
+            {open && (
                 <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9999,
-                    background: '#ffffff', border: '1px solid rgba(26,108,245,0.25)',
-                    borderRadius: 10, overflow: 'hidden', marginTop: 4,
-                    boxShadow: '0 8px 24px rgba(15,40,90,0.15)',
+                    position: 'absolute', top: '110%', left: 0, right: 0, zIndex: 9999,
+                    background: '#fff', borderRadius: 10, border: '1px solid rgba(15,40,90,0.12)',
+                    boxShadow: '0 8px 30px rgba(15,40,90,0.15)', overflow: 'hidden',
                 }}>
-                    {filtered.map(s => (
-                        <div key={s} onClick={() => { onSelect(s); setOpen(false); }}
+                    {suggestions.map((s, i) => (
+                        <div
+                            key={i}
+                            onMouseDown={() => { onSelect(s.name); setOpen(false); }}
                             style={{
-                                padding: '10px 14px', cursor: 'pointer', fontSize: 13, color: '#4a5f80',
-                                transition: 'background 0.12s', display: 'flex', gap: 8, alignItems: 'center'
+                                padding: '9px 14px', cursor: 'pointer', fontSize: 12,
+                                color: '#0d1b3e', borderBottom: '1px solid rgba(15,40,90,0.05)',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                             }}
                             onMouseEnter={e => e.currentTarget.style.background = '#f0f4ff'}
-                            onMouseLeave={e => e.currentTarget.style.background = ''}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                         >
-                            <span style={{ color: '#1a6cf5' }}>📍</span> {s}
+                            <span>📍 {s.name}</span>
+                            {s.routes_count > 0 && (
+                                <span style={{ fontSize: 10, color: '#9aafc4' }}>{s.routes_count} routes</span>
+                            )}
                         </div>
                     ))}
                 </div>
@@ -153,247 +146,292 @@ function StopAutocomplete({ value, onChange, onSelect, placeholder }) {
     );
 }
 
+/* ════════════════════════════════════ MAIN ════════════════════════════════ */
 export default function PassengerApp() {
-    const [origin, setOrigin] = useState('Shivajinagar Bus Stand');
-    const [destination, setDestination] = useState('Hinjewadi Phase 1');
-    const [journey, setJourney] = useState(null);
+    const [origin, setOrigin] = useState('Shivaji Nagar');
+    const [dest, setDest] = useState('Hinjawadi Maan Phase 3');
+    const [timePreset, setTimePreset] = useState(0);
+    const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [buses, setBuses] = useState([]);
-    const [routes, setRoutes] = useState([]);
+    const [error, setError] = useState('');
+    const [mapCenter, setMapCenter] = useState([18.5204, 73.8567]);
+    const [routeLine, setRouteLine] = useState([]);
 
-    const QUICK = [
-        { from: 'Shivajinagar Bus Stand', to: 'Hinjewadi Phase 1' },
-        { from: 'Kothrud Depot', to: 'Viman Nagar' },
-        { from: 'Swargate', to: 'Hadapsar' },
-    ];
-
-    useEffect(() => {
-        const load = async () => {
-            try { const [b, r] = await Promise.all([api.getBuses(), api.getRoutes()]); setBuses(b); setRoutes(r); } catch { }
-        };
-        load(); const iv = setInterval(load, 15000); return () => clearInterval(iv);
-    }, []);
-
-    const planJourney = async (from, to) => {
+    const search = useCallback(async () => {
+        if (!origin.trim() || !dest.trim()) return;
         setLoading(true);
-        try { const j = await api.planJourney(from, to); setJourney(j); } catch (e) { console.error(e); }
-        finally { setLoading(false); }
-    };
+        setError('');
+        setResult(null);
+        try {
+            const hour = TIME_PRESETS[timePreset].hour;
+            const res = await api.planRoute(origin, dest, hour);
+            if (res.error) { setError(res.error); return; }
+            setResult(res);
 
-    const swap = () => { const t = origin; setOrigin(destination); setDestination(t); };
-    const journeyPath = journey ? [[journey.origin.lat, journey.origin.lon], [journey.destination.lat, journey.destination.lon]] : null;
+            // Build polyline from origin → destination GPS
+            const line = [];
+            if (res.origin?.lat) line.push([res.origin.lat, res.origin.lon]);
+            if (res.destination?.lat) line.push([res.destination.lat, res.destination.lon]);
+            setRouteLine(line);
+            if (res.origin?.lat) setMapCenter([res.origin.lat, res.origin.lon]);
+        } catch (e) {
+            setError('Could not connect to backend. Make sure the server is running.');
+        } finally {
+            setLoading(false);
+        }
+    }, [origin, dest, timePreset]);
 
     return (
-        <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: '#f0f4f9' }}>
+        <div style={{
+            display: 'flex', height: '100%', fontFamily: 'Inter,sans-serif',
+            background: 'linear-gradient(135deg,#0f1f5a 0%,#1a3a8f 100%)',
+        }}>
 
-            {/* LEFT: Planner */}
+            {/* ── LEFT PANEL ── */}
             <div style={{
-                width: 390, flexShrink: 0,
-                borderRight: '1px solid rgba(15,40,90,0.10)',
-                background: '#ffffff',
-                display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                boxShadow: '2px 0 8px rgba(15,40,90,0.06)',
+                width: 380, flexShrink: 0, display: 'flex', flexDirection: 'column',
+                background: '#f4f7fc', borderRight: '1px solid rgba(15,40,90,0.10)',
+                overflowY: 'auto',
             }}>
-                {/* Search panel */}
-                <div style={{ padding: '18px 16px', borderBottom: '1px solid rgba(15,40,90,0.09)', flexShrink: 0 }}>
-                    <div style={{
-                        fontSize: 11, fontWeight: 700, color: '#1a6cf5',
-                        textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 14
-                    }}>
-                        Plan Your Journey
+                {/* Header */}
+                <div style={{
+                    padding: '20px 20px 16px',
+                    background: 'linear-gradient(135deg,#1a6cf5,#3b82f6)', color: '#fff',
+                }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>🧭 Transit Planner</div>
+                    <div style={{ fontSize: 11, opacity: 0.85 }}>
+                        Powered by RAPTOR Algorithm · Real PMPML Network
+                    </div>
+                </div>
+
+                {/* Search form */}
+                <div style={{ padding: 16, background: '#fff', borderBottom: '1px solid rgba(15,40,90,0.08)' }}>
+                    {/* Origin */}
+                    <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#4a5f80', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>
+                            🟢 From
+                        </label>
+                        <StopAutocomplete
+                            value={origin}
+                            onChange={setOrigin}
+                            onSelect={setOrigin}
+                            placeholder="Search origin stop…"
+                        />
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, position: 'relative' }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#00a86b', flexShrink: 0 }} />
-                            <StopAutocomplete value={origin} onChange={setOrigin} onSelect={setOrigin} placeholder="From stop..." />
-                        </div>
-                        <button onClick={swap} style={{
-                            position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
-                            width: 28, height: 28, borderRadius: '50%',
-                            background: '#f0f4f9', border: '1px solid rgba(15,40,90,0.18)',
-                            cursor: 'pointer', fontSize: 14, color: '#4a5f80',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
+                    {/* Swap button */}
+                    <div style={{ textAlign: 'center', marginBottom: 10 }}>
+                        <button onClick={() => { setOrigin(dest); setDest(origin); }} style={{
+                            background: '#f0f4ff', border: '1px solid rgba(26,108,245,0.25)', borderRadius: 8,
+                            padding: '5px 14px', cursor: 'pointer', fontSize: 16, color: '#1a6cf5',
                         }}>⇅</button>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <div style={{ width: 10, height: 10, borderRadius: 3, background: '#1a6cf5', flexShrink: 0 }} />
-                            <StopAutocomplete value={destination} onChange={setDestination} onSelect={setDestination} placeholder="To stop..." />
-                        </div>
                     </div>
 
-                    <button className="btn btn-primary" onClick={() => planJourney(origin, destination)}
-                        disabled={loading} style={{ width: '100%', marginTop: 12, justifyContent: 'center', padding: '11px' }}>
-                        {loading ? '⏳ Planning...' : '🚀 Find Best Route'}
-                    </button>
+                    {/* Destination */}
+                    <div style={{ marginBottom: 14 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#4a5f80', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>
+                            🔴 To
+                        </label>
+                        <StopAutocomplete
+                            value={dest}
+                            onChange={setDest}
+                            onSelect={setDest}
+                            placeholder="Search destination stop…"
+                        />
+                    </div>
 
-                    {!journey && (
-                        <div style={{ marginTop: 14 }}>
-                            <div style={{ fontSize: 10, color: '#9aafc4', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                                Popular Routes
-                            </div>
-                            {QUICK.map((s, i) => (
-                                <button key={i}
-                                    onClick={() => { setOrigin(s.from); setDestination(s.to); planJourney(s.from, s.to); }}
-                                    style={{
-                                        width: '100%', padding: '9px 12px', marginBottom: 5, borderRadius: 8,
-                                        background: '#f8fafc', border: '1px solid rgba(15,40,90,0.10)',
-                                        cursor: 'pointer', textAlign: 'left', fontSize: 12, color: '#4a5f80',
-                                        transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 6,
-                                    }}
-                                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(26,108,245,0.3)'; e.currentTarget.style.color = '#1a6cf5'; }}
-                                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(15,40,90,0.10)'; e.currentTarget.style.color = '#4a5f80'; }}
-                                >
-                                    <span style={{ color: '#1a6cf5' }}>›</span> {s.from} → {s.to}
+                    {/* Time selector */}
+                    <div style={{ marginBottom: 14 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#4a5f80', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 7 }}>
+                            ⏰ Departure Time
+                        </label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            {TIME_PRESETS.map((p, i) => (
+                                <button key={i} onClick={() => setTimePreset(i)} style={{
+                                    flex: 1, padding: '7px 4px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                                    background: timePreset === i ? '#1a6cf5' : '#f0f4ff',
+                                    color: timePreset === i ? '#fff' : '#4a5f80',
+                                    fontSize: 10, fontWeight: 700, fontFamily: 'Inter,sans-serif',
+                                    transition: 'all 0.15s',
+                                }}>
+                                    {p.icon}<br />{p.label}
                                 </button>
                             ))}
+                        </div>
+                    </div>
+
+                    {/* Search button */}
+                    <button onClick={search} disabled={loading} style={{
+                        width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                        background: loading ? '#c0ccdf' : 'linear-gradient(135deg,#1a6cf5,#3b82f6)',
+                        color: '#fff', fontSize: 14, fontWeight: 800, fontFamily: 'Inter,sans-serif',
+                        boxShadow: loading ? 'none' : '0 4px 16px rgba(26,108,245,0.4)',
+                        transition: 'all 0.2s',
+                    }}>
+                        {loading ? '🔄 Finding route…' : '🔍 Find Route'}
+                    </button>
+
+                    {error && (
+                        <div style={{ marginTop: 10, padding: '10px 12px', background: '#fdecea', borderRadius: 8, fontSize: 12, color: '#e53935' }}>
+                            ⚠️ {error}
                         </div>
                     )}
                 </div>
 
-                {/* Journey result */}
-                {journey && (
-                    <div className="scroll-y" style={{ flex: 1 }}>
-                        {/* Summary */}
+                {/* Results */}
+                {result && (
+                    <div style={{ padding: '14px 16px', flex: 1 }}>
+                        {/* Algorithm badge */}
                         <div style={{
-                            padding: '16px',
-                            background: 'linear-gradient(135deg, #1a6cf5, #0f4bb0)',
-                            color: '#fff',
+                            marginBottom: 12, padding: '8px 12px',
+                            background: 'linear-gradient(135deg,#f0f4ff,#e8f0fe)',
+                            borderRadius: 10, border: '1px solid rgba(26,108,245,0.2)',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         }}>
-                            <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.8, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                                Journey Summary
+                            <div>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: '#1a6cf5' }}>
+                                    ⚡ {result.algorithm}
+                                </div>
+                                <div style={{ fontSize: 9, color: '#9aafc4' }}>Round-Based Public Transit Optimized Router</div>
                             </div>
-                            <div style={{ display: 'flex', gap: 10, justifyContent: 'space-around' }}>
-                                {[
-                                    { v: `${journey.total_duration_min}m`, l: 'Duration', e: '⏱️' },
-                                    { v: `${journey.total_distance_km}km`, l: 'Distance', e: '📏' },
-                                    { v: `₹${journey.fare_inr}`, l: 'Fare', e: '🎫' },
-                                    { v: `+${journey.time_saved_min}m`, l: 'vs Driving', e: '⚡' },
-                                ].map(m => (
-                                    <div key={m.l} style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: 16, marginBottom: 2 }}>{m.e}</div>
-                                        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: 'JetBrains Mono,monospace' }}>{m.v}</div>
-                                        <div style={{ fontSize: 9, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{m.l}</div>
-                                    </div>
-                                ))}
-                            </div>
-                            <div style={{
-                                marginTop: 12, padding: '7px 12px', borderRadius: 8,
-                                background: 'rgba(255,255,255,0.18)', fontSize: 11, display: 'flex', gap: 6, alignItems: 'center',
-                            }}>
-                                <span>🌱</span> Saving {journey.carbon_saved_g}g CO₂ vs driving
+                            <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#00a86b' }}>
+                                    🍃 {result.carbon_saved_g}g CO₂ saved
+                                </div>
                             </div>
                         </div>
 
-                        {/* Steps */}
-                        <div style={{ padding: '18px 16px' }}>
-                            <div style={{ fontSize: 10, color: '#9aafc4', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 16 }}>
-                                Step-by-step
-                            </div>
-                            {journey.steps.map((step, i) => (
-                                <JourneyStep key={step.step} step={step} isLast={i === journey.steps.length - 1} />
+                        {/* Summary strip */}
+                        <div style={{
+                            display: 'flex', gap: 8, marginBottom: 14,
+                        }}>
+                            {[
+                                { label: 'Total Time', value: `${result.total_time_min}m`, icon: '⏱', color: '#1a6cf5' },
+                                { label: 'Transfers', value: result.transfers, icon: '🔄', color: '#e88c00' },
+                                { label: 'Fare', value: `₹${result.fare_inr}`, icon: '💳', color: '#00a86b' },
+                                { label: 'Distance', value: `${result.distance_km}km`, icon: '📍', color: '#6c3acb' },
+                            ].map(m => (
+                                <div key={m.label} style={{
+                                    flex: 1, textAlign: 'center', background: '#fff',
+                                    borderRadius: 10, padding: '9px 4px',
+                                    border: `1px solid ${m.color}22`,
+                                    boxShadow: '0 1px 4px rgba(15,40,90,0.06)',
+                                }}>
+                                    <div style={{ fontSize: 16 }}>{m.icon}</div>
+                                    <div style={{ fontSize: 15, fontWeight: 900, color: m.color, fontFamily: 'monospace' }}>{m.value}</div>
+                                    <div style={{ fontSize: 9, color: '#9aafc4', textTransform: 'uppercase' }}>{m.label}</div>
+                                </div>
                             ))}
                         </div>
 
-                        <div style={{ padding: '0 16px 18px' }}>
-                            <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center' }}
-                                onClick={() => setJourney(null)}>← Plan Another Journey</button>
+                        {/* Departure / Arrival */}
+                        <div style={{
+                            display: 'flex', justifyContent: 'space-between', marginBottom: 14,
+                            padding: '10px 14px', background: '#fff', borderRadius: 10,
+                            border: '1px solid rgba(15,40,90,0.08)',
+                        }}>
+                            <div>
+                                <div style={{ fontSize: 10, color: '#9aafc4', textTransform: 'uppercase' }}>Depart</div>
+                                <div style={{ fontSize: 18, fontWeight: 900, color: '#1a6cf5', fontFamily: 'monospace' }}>{result.departure}</div>
+                                <div style={{ fontSize: 10, color: '#4a5f80' }}>{result.origin?.name || origin}</div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', color: '#c0ccdf', fontSize: 20 }}>→</div>
+                            <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: 10, color: '#9aafc4', textTransform: 'uppercase' }}>Arrive</div>
+                                <div style={{ fontSize: 18, fontWeight: 900, color: '#00a86b', fontFamily: 'monospace' }}>{result.arrival}</div>
+                                <div style={{ fontSize: 10, color: '#4a5f80' }}>{result.destination?.name || dest}</div>
+                            </div>
                         </div>
+
+                        {/* Step-by-step */}
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#0d1b3e', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+                            🗺️ Step-by-Step Route
+                        </div>
+                        {(result.steps || []).map((step, i) => (
+                            <StepCard key={i} step={step} color="#1a6cf5" />
+                        ))}
+                    </div>
+                )}
+
+                {!result && !loading && (
+                    <div style={{ padding: 24, textAlign: 'center', color: '#9aafc4' }}>
+                        <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>Enter origin & destination</div>
+                        <div style={{ fontSize: 11, marginTop: 6 }}>and press Find Route to get your optimized transit plan</div>
                     </div>
                 )}
             </div>
 
-            {/* RIGHT: Map */}
-            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {/* Live badge */}
+            {/* ── MAP ── */}
+            <div style={{ flex: 1, position: 'relative' }}>
+                {/* Top overlay */}
                 <div style={{
-                    position: 'absolute', top: 12, right: 16, zIndex: 500,
-                    padding: '7px 14px', borderRadius: 99,
-                    background: '#fff', border: '1px solid rgba(0,168,107,0.28)',
-                    boxShadow: '0 2px 10px rgba(15,40,90,0.10)',
-                    display: 'flex', gap: 6, alignItems: 'center',
+                    position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+                    zIndex: 500, background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(12px)',
+                    borderRadius: 12, padding: '10px 20px',
+                    boxShadow: '0 4px 20px rgba(15,40,90,0.2)', border: '1px solid rgba(15,40,90,0.10)',
+                    display: 'flex', alignItems: 'center', gap: 14,
                 }}>
-                    <span className="live-dot" />
-                    <span style={{ fontSize: 11, color: '#00a86b', fontWeight: 700 }}>
-                        {buses.length} Buses Live
-                    </span>
+                    <span style={{ fontSize: 20 }}>🚌</span>
+                    <div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b3e' }}>Transit-IQ Route Planner</div>
+                        <div style={{ fontSize: 10, color: '#9aafc4' }}>RAPTOR · Real PMPML Network · Pune</div>
+                    </div>
+                    {result && (
+                        <div style={{
+                            marginLeft: 8, padding: '5px 12px', background: '#e2f9ef',
+                            borderRadius: 8, border: '1px solid #00a86b44',
+                            fontSize: 11, fontWeight: 700, color: '#00a86b',
+                        }}>
+                            ✅ Route found · {result.total_time_min}min
+                        </div>
+                    )}
                 </div>
 
-                {/* Journey origin/dest overlay */}
-                {journey && (
-                    <div style={{
-                        position: 'absolute', top: 12, left: 16, zIndex: 500,
-                        padding: '12px 16px', borderRadius: 12,
-                        background: '#ffffff', border: '1px solid rgba(26,108,245,0.25)',
-                        boxShadow: '0 2px 16px rgba(15,40,90,0.12)', maxWidth: 260,
-                    }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#1a6cf5', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                            Journey Mapped
-                        </div>
-                        <div style={{ fontSize: 12, color: '#4a5f80', lineHeight: 1.7 }}>
-                            <span style={{ color: '#00a86b', fontWeight: 700 }}>●</span> {journey.origin.name}<br />
-                            <span style={{ color: '#9aafc4', fontSize: 11 }}>↓</span><br />
-                            <span style={{ color: '#e53935', fontWeight: 700 }}>■</span> {journey.destination.name}
-                        </div>
-                        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: '#1a6cf5' }}>
-                            ⏱️ {journey.total_duration_min} min · ₹{journey.fare_inr}
-                        </div>
-                    </div>
-                )}
-
-                <MapContainer center={[18.5204, 73.8567]} zoom={12}
-                    style={{ height: '100%', width: '100%' }} zoomControl={false}>
+                <MapContainer center={mapCenter} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={true}>
                     <TileLayer
                         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                        attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                        attribution="&copy; CARTO"
                         maxZoom={19}
                     />
+                    <MapFlyTo center={mapCenter} />
 
-                    {/* Route polylines */}
-                    {routes.map(route => {
-                        const coords = route.stop_coordinates?.map(s => [s.lat, s.lon]) || [];
-                        return coords.length > 1 ? (
-                            <Polyline key={route.route_id} positions={coords}
-                                color={route.color} weight={2} opacity={0.5} />
-                        ) : null;
-                    })}
-
-                    {/* Journey path highlight */}
-                    {journeyPath && (
-                        <Polyline positions={journeyPath} color="#1a6cf5" weight={5} opacity={0.85} />
+                    {/* Route polyline */}
+                    {routeLine.length > 1 && (
+                        <Polyline
+                            positions={routeLine}
+                            color="#1a6cf5"
+                            weight={5}
+                            opacity={0.8}
+                            dashArray="8,4"
+                        />
                     )}
 
-                    {/* Origin */}
-                    {journey && (
-                        <CircleMarker center={[journey.origin.lat, journey.origin.lon]}
-                            radius={11} color="#00a86b" fillColor="#00a86b" fillOpacity={0.85} weight={3}>
-                            <Popup><strong>{journey.origin.name}</strong><br />Your Origin</Popup>
+                    {/* Origin marker */}
+                    {result?.origin?.lat && (
+                        <CircleMarker
+                            center={[result.origin.lat, result.origin.lon]}
+                            radius={10} color="#00a86b" fillColor="#00a86b" fillOpacity={0.9} weight={3}
+                        >
+                            <Popup>
+                                <strong>🟢 Origin</strong><br />
+                                {result.origin.name}
+                            </Popup>
                         </CircleMarker>
                     )}
 
-                    {/* Destination */}
-                    {journey && (
-                        <CircleMarker center={[journey.destination.lat, journey.destination.lon]}
-                            radius={11} color="#e53935" fillColor="#e53935" fillOpacity={0.85} weight={3}>
-                            <Popup><strong>{journey.destination.name}</strong><br />Your Destination</Popup>
+                    {/* Destination marker */}
+                    {result?.destination?.lat && (
+                        <CircleMarker
+                            center={[result.destination.lat, result.destination.lon]}
+                            radius={10} color="#e53935" fillColor="#e53935" fillOpacity={0.9} weight={3}
+                        >
+                            <Popup>
+                                <strong>🔴 Destination</strong><br />
+                                {result.destination.name}
+                            </Popup>
                         </CircleMarker>
                     )}
-
-                    {/* Live buses */}
-                    {buses.slice(0, 70).map(bus => {
-                        const color = bus.status === 'breakdown' ? '#e53935' : bus.status === 'crowded' ? '#e88c00' : bus.status === 'delayed' ? '#fb6f00' : '#00a86b';
-                        return (
-                            <CircleMarker key={bus.bus_id} center={[bus.lat, bus.lon]}
-                                radius={5} color={color} fillColor={color} fillOpacity={0.7} weight={2}>
-                                <Popup>
-                                    <div style={{ fontFamily: 'Inter,sans-serif', fontSize: 12, lineHeight: 1.6 }}>
-                                        <strong>{bus.bus_id}</strong> — {bus.route_name}<br />
-                                        Load: {bus.occupancy_pct}% · {bus.status}<br />
-                                        Next: {bus.next_stop} in {bus.eta_next_stop_min}m
-                                    </div>
-                                </Popup>
-                            </CircleMarker>
-                        );
-                    })}
                 </MapContainer>
             </div>
         </div>

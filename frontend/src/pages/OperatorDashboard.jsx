@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker } from 'react-leaflet';
 import L from 'leaflet';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, LineChart, Line, Legend } from 'recharts';
 import api from '../api.js';
 import 'leaflet/dist/leaflet.css';
 
@@ -131,19 +131,41 @@ export default function OperatorDashboard() {
     const [loading, setLoading] = useState(true);
     const [now, setNow] = useState(new Date());
 
+    const [heatmap, setHeatmap] = useState([]);
+    const [showHeatmap, setShowHeatmap] = useState(false);
+    const [heatmapHour, setHeatmapHour] = useState(8);
+    const [timeOfDayProfile, setTimeOfDayProfile] = useState(null);
+    const [tradeoffs, setTradeoffs] = useState(null);
+
     const load = useCallback(async () => {
         try {
-            const [r, b, w, fc, re, al] = await Promise.all([
+            const [r, b, w, fc, re, al, to] = await Promise.all([
                 api.getRoutes(), api.getBuses(), api.getWeather(),
-                api.getForecast(), api.getRecommendations(), api.getAlerts()
+                api.getForecast(), api.getRecommendations(), api.getAlerts(),
+                api.getOptimizeTradeoffs().catch(() => null)
             ]);
             setRoutes(r); setBuses(b); setWeather(w); setForecast(fc); setRecs(re); setAlerts(al);
+            if (to) setTradeoffs(to);
         } catch (e) { console.error(e); } finally { setLoading(false); }
     }, []);
 
     useEffect(() => {
         load(); const iv = setInterval(load, 8000); return () => clearInterval(iv);
     }, [load]);
+
+    useEffect(() => {
+        if (showHeatmap) {
+            api.getDemandHeatmap(heatmapHour).then(setHeatmap).catch(() => { });
+        }
+    }, [showHeatmap, heatmapHour]);
+
+    useEffect(() => {
+        if (selRoute && tab === 'demand') {
+            api.getTimeofdayProfile(selRoute).then(setTimeOfDayProfile).catch(() => { });
+        } else {
+            setTimeOfDayProfile(null);
+        }
+    }, [selRoute, tab]);
 
     useEffect(() => {
         api.getAccuracySummary().then(setAccuracy).catch(() => { });
@@ -353,6 +375,24 @@ export default function OperatorDashboard() {
                     </div>
                 )}
 
+                {/* Heatmap overlay controls */}
+                <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 500, background: 'rgba(255,255,255,0.96)', borderRadius: 10, padding: '10px 14px', border: '1px solid rgba(15,40,90,0.09)', boxShadow: '0 2px 10px rgba(15,40,90,0.08)', display: 'flex', flexDirection: 'column', gap: 8, width: 170 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b3e' }}>🌡️ Demand Heat</span>
+                        <input type="checkbox" checked={showHeatmap} onChange={e => setShowHeatmap(e.target.checked)} />
+                    </div>
+                    {showHeatmap && (
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#4a5f80', marginBottom: 4 }}>
+                                <span>5AM</span>
+                                <span style={{ fontWeight: 800, color: '#1a6cf5' }}>{heatmapHour <= 12 ? (heatmapHour === 12 ? '12PM' : heatmapHour + 'AM') : (heatmapHour - 12) + 'PM'}</span>
+                                <span>11PM</span>
+                            </div>
+                            <input type="range" min="5" max="23" value={heatmapHour} onChange={e => setHeatmapHour(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#e53935' }} />
+                        </div>
+                    )}
+                </div>
+
                 {/* Map legend */}
                 <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 500, background: 'rgba(255,255,255,0.96)', borderRadius: 10, padding: '10px 14px', border: '1px solid rgba(15,40,90,0.09)', boxShadow: '0 2px 10px rgba(15,40,90,0.08)' }}>
                     {[['#00a86b', 'On Time'], ['#e88c00', 'Crowded'], ['#fb8c00', 'Delayed'], ['#e53935', 'Breakdown']].map(([c, l]) => (
@@ -387,6 +427,22 @@ export default function OperatorDashboard() {
                             </Popup>
                         </Marker>
                     ))}
+                    {/* Heatmap overlay markers */}
+                    {showHeatmap && heatmap.map((s, i) => {
+                        const r = Math.max(4, s.demand_score * 22);
+                        const c = s.demand_level === 'critical' ? '#e53935' : s.demand_level === 'high' ? '#e88c00' : s.demand_level === 'medium' ? '#1a6cf5' : '#00a86b';
+                        return (
+                            <CircleMarker key={'hm' + i} center={[s.lat, s.lon]} radius={r} color={c} fillColor={c} fillOpacity={0.6} weight={1}>
+                                <Popup>
+                                    <div style={{ fontFamily: 'Inter,sans-serif', fontSize: 12 }}>
+                                        <strong>{s.stop_name}</strong><br />
+                                        Demand: <strong>{s.passengers} pax</strong> ({s.occupancy_pct}%)<br />
+                                        Serving: <strong>{s.routes_serving} routes</strong>
+                                    </div>
+                                </Popup>
+                            </CircleMarker>
+                        );
+                    })}
                 </MapContainer>
             </div>
 
@@ -399,9 +455,10 @@ export default function OperatorDashboard() {
             }}>
                 {rightOpen && <>
                     {/* Tab bar */}
-                    <div style={{ padding: '10px 10px 7px', background: '#fff', borderBottom: '1px solid rgba(15,40,90,0.08)', display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <div style={{ padding: '10px 10px 7px', background: '#fff', borderBottom: '1px solid rgba(15,40,90,0.08)', display: 'flex', gap: 4, flexShrink: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                         <TabBtn id="fleet" label="🚌 Fleet" />
                         <TabBtn id="demand" label="📊 Demand" />
+                        <TabBtn id="optimize" label="⚙️ Optimize" />
                         <TabBtn id="alerts" label="🔔 Alerts" badge={alerts.length} />
                         <TabBtn id="ai" label="🤖 AI" />
                     </div>
@@ -526,6 +583,37 @@ export default function OperatorDashboard() {
                                                 </div>
                                             );
                                         })()}
+
+                                        {/* Time of Day Profiles */}
+                                        {timeOfDayProfile && (
+                                            <div style={{ marginTop: 14 }}>
+                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#0d1b3e', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>⏱️ Demand By Time of Day</div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
+                                                    {Object.values(timeOfDayProfile.scenarios).map((s, i) => (
+                                                        <div key={i} style={{ background: '#f8fafc', padding: '8px', borderRadius: 8, border: '1px solid rgba(15,40,90,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                            <div style={{ fontSize: 20 }}>{s.icon}</div>
+                                                            <div>
+                                                                <div style={{ fontSize: 9, color: '#9aafc4', textTransform: 'uppercase' }}>{s.label}</div>
+                                                                <div style={{ fontSize: 13, fontWeight: 800, color: '#0d1b3e' }}>{s.passengers} pax</div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div style={{ background: '#fff', borderRadius: 10, padding: '10px 10px 0', border: '1px solid rgba(15,40,90,0.09)' }}>
+                                                    <div style={{ fontSize: 10, color: '#4a5f80', marginBottom: 6, fontWeight: 600 }}>Weekday vs Weekend Overview</div>
+                                                    <ResponsiveContainer width="100%" height={120}>
+                                                        <LineChart data={timeOfDayProfile.hourly_profile} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                                                            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#9aafc4' }} tickLine={false} interval={3} />
+                                                            <YAxis tick={{ fontSize: 9, fill: '#9aafc4' }} tickLine={false} axisLine={false} />
+                                                            <Tooltip contentStyle={{ fontSize: 10, borderRadius: 6, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                                                            <Legend wrapperStyle={{ fontSize: 10 }} />
+                                                            <Line type="monotone" dataKey="weekday" name="Weekday" stroke={selObj.color} strokeWidth={2} dot={false} />
+                                                            <Line type="monotone" dataKey="weekend" name="Weekend" stroke="#e88c00" strokeWidth={2} dot={false} />
+                                                        </LineChart>
+                                                    </ResponsiveContainer>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             ) : (
@@ -646,6 +734,60 @@ export default function OperatorDashboard() {
                                     </div>
                                 ))}
                                 {sdg && <div style={{ textAlign: 'center', fontSize: 9, color: '#c0ccdf', paddingTop: 4 }}>Updated {new Date(sdg.timestamp).toLocaleTimeString('en-IN')}</div>}
+                            </div>
+                        </div>
+                    )}
+                    {/* ── OPTIMIZE tab ── */}
+                    {tab === 'optimize' && tradeoffs && (
+                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                            <SectionHdr icon="⚙️" right="Multi-Objective">Fleet Strategies</SectionHdr>
+                            <div style={{ padding: '0 12px 12px' }}>
+                                <div style={{ fontSize: 11, color: '#4a5f80', marginBottom: 12, lineHeight: 1.5, background: '#fff', padding: '10px 14px', borderRadius: 10, border: '1px solid rgba(15,40,90,0.08)' }}>
+                                    <strong>{tradeoffs.pending_recs} bottlenecks detected</strong> across {tradeoffs.total_routes} routes. Select an allocation strategy to prioritize either passenger wait time or fleet fuel cost.
+                                </div>
+                                <div style={{ background: '#fff', borderRadius: 12, padding: '10px', marginBottom: 16, border: '1px solid rgba(15,40,90,0.09)' }}>
+                                    <ResponsiveContainer width="100%" height={220}>
+                                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={[
+                                            { subject: 'Wait Score', A: tradeoffs.strategies[0].radar.wait_score, B: tradeoffs.strategies[1].radar.wait_score, C: tradeoffs.strategies[2].radar.wait_score, fullMark: 100 },
+                                            { subject: 'Fuel Score', A: tradeoffs.strategies[0].radar.fuel_score, B: tradeoffs.strategies[1].radar.fuel_score, C: tradeoffs.strategies[2].radar.fuel_score, fullMark: 100 },
+                                            { subject: 'Coverage', A: tradeoffs.strategies[0].radar.coverage_score, B: tradeoffs.strategies[1].radar.coverage_score, C: tradeoffs.strategies[2].radar.coverage_score, fullMark: 100 }
+                                        ]}>
+                                            <PolarGrid stroke="#eef1f8" />
+                                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#4a5f80', fontSize: 10, fontWeight: 700 }} />
+                                            <Radar name="Time-Optimal" dataKey="A" stroke={tradeoffs.strategies[0].color} fill={tradeoffs.strategies[0].color} fillOpacity={0.2} />
+                                            <Radar name="Fuel-Optimal" dataKey="B" stroke={tradeoffs.strategies[1].color} fill={tradeoffs.strategies[1].color} fillOpacity={0.2} />
+                                            <Radar name="Balanced" dataKey="C" stroke={tradeoffs.strategies[2].color} fill={tradeoffs.strategies[2].color} fillOpacity={0.2} />
+                                            <Tooltip contentStyle={{ fontSize: 10 }} />
+                                            <Legend wrapperStyle={{ fontSize: 10 }} />
+                                        </RadarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {tradeoffs.strategies.map(st => (
+                                        <div key={st.id} style={{
+                                            background: st.recommended ? '#f4faf6' : '#fff',
+                                            borderRadius: 12, padding: '12px 14px',
+                                            border: `2px solid ${st.recommended ? st.color : 'rgba(15,40,90,0.08)'}`,
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                <div style={{ fontSize: 13, fontWeight: 800, color: st.color }}>{st.name}</div>
+                                                <div style={{ fontSize: 12, fontWeight: 900, color: '#0d1b3e' }}>+{st.extra_buses_needed} <span style={{ fontSize: 10, color: '#9aafc4' }}>buses</span></div>
+                                            </div>
+                                            <div style={{ fontSize: 10, color: '#4a5f80', marginBottom: 10 }}>{st.description}</div>
+                                            <div style={{ display: 'flex', gap: 6 }}>
+                                                <div style={{ flex: 1, background: '#fff', borderRadius: 8, padding: '6px', border: '1px solid rgba(15,40,90,0.06)' }}>
+                                                    <div style={{ fontSize: 9, color: '#9aafc4', textTransform: 'uppercase' }}>Avg Wait After</div>
+                                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#0d1b3e' }}>{st.avg_wait_min_after}m <span style={{ color: '#00a86b', fontSize: 10 }}>(-{st.wait_reduction_pct}%)</span></div>
+                                                </div>
+                                                <div style={{ flex: 1, background: '#fff', borderRadius: 8, padding: '6px', border: '1px solid rgba(15,40,90,0.06)' }}>
+                                                    <div style={{ fontSize: 9, color: '#9aafc4', textTransform: 'uppercase' }}>Fuel Cost / Day</div>
+                                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#e88c00' }}>₹{st.fuel_cost_inr_daily.toLocaleString()}</div>
+                                                </div>
+                                            </div>
+                                            <button style={{ width: '100%', padding: '8px', marginTop: 10, borderRadius: 8, border: 'none', background: st.color, color: '#fff', fontWeight: 800, cursor: 'pointer' }}>Apply Strategy</button>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
