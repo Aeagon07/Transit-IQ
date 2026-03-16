@@ -7,8 +7,8 @@ import api from '../api.js';
 
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
-const MODE_ICONS = { walk: <PersonStanding size={16}/>, bus: <Bus size={16}/>, transfer: <ArrowRightLeft size={16}/>, metro: <Train size={16}/> };
-const MODE_COLORS = { walk: '#9aafc4', bus: '#1a6cf5', transfer: '#e88c00', metro: '#6c3acb' };
+const MODE_ICONS = { walk: <PersonStanding size={16}/>, bus: <Bus size={16}/>, transfer: <ArrowRightLeft size={16}/>, metro: <Train size={16}/>, auto: <Zap size={16}/> };
+const MODE_COLORS = { walk: '#9aafc4', bus: '#1a6cf5', transfer: '#e88c00', metro: '#6c3acb', auto: '#fbc02d' };
 const CROWD_COLORS = { low: '#00a86b', medium: '#e88c00', high: '#e53935' };
 const CROWD_LABELS = { low: 'Low', medium: 'Medium', high: 'High' };
 
@@ -25,15 +25,76 @@ function MapFlyTo({ center }) {
     return null;
 }
 
-function StepCard({ step, color }) {
+function normalizeStopName(name = '') {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function getRouteMatch(step, routeCatalog) {
+    const fromName = normalizeStopName(step?.from);
+    const toName = normalizeStopName(step?.to);
+    return routeCatalog.find((route) => {
+        const routeIdMatches = step?.route_id && route.route_id === step.route_id;
+        const routeNameMatches = step?.route && route.route_name === step.route;
+        const stopNames = (route.stop_coordinates || []).map((stop) => normalizeStopName(stop.name));
+        const hasEndpoints = fromName && toName && stopNames.includes(fromName) && stopNames.includes(toName);
+        return routeIdMatches || routeNameMatches || hasEndpoints;
+    }) || null;
+}
+
+function getStopPoint(name, routeCatalog, fallback = null) {
+    const normalizedName = normalizeStopName(name);
+    if (!normalizedName) return fallback;
+
+    for (const route of routeCatalog) {
+        const stop = (route.stop_coordinates || []).find((entry) => normalizeStopName(entry.name) === normalizedName);
+        if (stop) return [stop.lat, stop.lon];
+    }
+
+    return fallback;
+}
+
+function getBusSegment(step, routeCatalog) {
+    const route = getRouteMatch(step, routeCatalog);
+    const routeStops = route?.stop_coordinates || [];
+    if (routeStops.length < 2) return [];
+
+    const fromName = normalizeStopName(step?.from);
+    const toName = normalizeStopName(step?.to);
+    const fromIndex = routeStops.findIndex((stop) => normalizeStopName(stop.name) === fromName);
+    const toIndex = routeStops.findIndex((stop) => normalizeStopName(stop.name) === toName);
+
+    if (fromIndex >= 0 && toIndex >= 0) {
+        const visibleSegment = fromIndex <= toIndex
+            ? routeStops.slice(fromIndex, toIndex + 1)
+            : routeStops.slice(toIndex, fromIndex + 1).reverse();
+        return visibleSegment.map((stop) => [stop.lat, stop.lon]);
+    }
+
+    return routeStops.map((stop) => [stop.lat, stop.lon]);
+}
+
+function appendSegment(points, segment) {
+    if (!segment.length) return points;
+    if (!points.length) return [...segment];
+
+    const [lastLat, lastLon] = points[points.length - 1];
+    const [nextLat, nextLon] = segment[0];
+    const startsAtSamePoint = lastLat === nextLat && lastLon === nextLon;
+    return startsAtSamePoint ? [...points, ...segment.slice(1)] : [...points, ...segment];
+}
+
+function StepCard({ step, color, selected = false, selectedBusNo = '', onSelectStep, onSelectBus }) {
     const ic = MODE_ICONS[step.mode] || '•';
     const col = MODE_COLORS[step.mode] || '#9aafc4';
+    const isBusStep = step.mode === 'bus';
     return (
         <div style={{
             display: 'flex', gap: 12, padding: '12px 16px', marginBottom: 8,
             background: '#fff', borderRadius: 12,
-            border: `1px solid ${col}25`,
-            boxShadow: '0 1px 6px rgba(15,40,90,0.06)',
+            border: selected ? `2px solid ${col}` : `1px solid ${col}25`,
+            boxShadow: selected ? `0 6px 18px ${col}22` : '0 1px 6px rgba(15,40,90,0.06)',
+            cursor: isBusStep ? 'pointer' : 'default',
+            transition: 'all 0.18s ease',
         }}>
             {/* Icon column */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 36 }}>
@@ -45,7 +106,7 @@ function StepCard({ step, color }) {
                 <div style={{ width: 2, flex: 1, background: `${col}30`, borderRadius: 1, minHeight: 12 }} />
             </div>
             {/* Content */}
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1 }} onClick={isBusStep ? onSelectStep : undefined}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b3e', marginBottom: 3 }}>
                     {step.description}
                 </div>
@@ -54,7 +115,12 @@ function StepCard({ step, color }) {
                         ⏱ {step.duration_min}m
                     </span>
                     {step.distance_m && (
-                        <span style={{ fontSize: 11, color: '#9aafc4' }}>· {step.distance_m}m walk</span>
+                        <span style={{ fontSize: 11, color: '#9aafc4' }}>· {step.distance_m}m {step.mode === 'auto' ? 'ride' : 'walk'}</span>
+                    )}
+                    {step.traffic_delay_min > 0 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: '#feebee', color: '#e53935', border: '1px solid #e5393544' }}>
+                            +{step.traffic_delay_min}m traffic delay
+                        </span>
                     )}
                     {step.crowd_level && (
                         <span style={{
@@ -76,10 +142,32 @@ function StepCard({ step, color }) {
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px dashed ${col}30`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <div style={{ fontSize: 10, color: '#4a5f80', width: '100%', marginBottom: 2 }}>Upcoming Departures (Est. Fare: ₹{step.fare || 15}):</div>
                         {step.next_departures.map((dep, idx) => (
-                            <div key={idx} style={{ background: '#f0f4ff', padding: '4px 8px', borderRadius: 6, fontSize: 10, color: '#1a6cf5', fontWeight: 600 }}>
+                            <button
+                                key={idx}
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectBus?.(dep);
+                                }}
+                                style={{
+                                    background: selectedBusNo === dep.bus_no ? '#1a6cf5' : '#f0f4ff',
+                                    padding: '4px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    color: selectedBusNo === dep.bus_no ? '#fff' : '#1a6cf5',
+                                    fontWeight: 700,
+                                    border: selectedBusNo === dep.bus_no ? '1px solid #1a6cf5' : '1px solid transparent',
+                                    cursor: 'pointer',
+                                }}
+                            >
                                 🚌 {dep.bus_no} • {dep.time} (in {dep.in_min}m)
-                            </div>
+                            </button>
                         ))}
+                        {isBusStep && (
+                            <div style={{ width: '100%', fontSize: 10, color: selectedBusNo ? '#00a86b' : '#9aafc4' }}>
+                                {selectedBusNo ? `Selected bus: ${selectedBusNo}` : 'Choose a bus from this route to report an issue for that bus.'}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -169,6 +257,8 @@ export default function PassengerApp() {
     const [error, setError] = useState('');
     const [mapCenter, setMapCenter] = useState([18.5204, 73.8567]);
     const [routeLine, setRouteLine] = useState([]);
+    const [selectedRouteLine, setSelectedRouteLine] = useState([]);
+    const [routeCatalog, setRouteCatalog] = useState([]);
 
     // A5: Issue reporter state
     const [showIssueModal, setShowIssueModal] = useState(false);
@@ -176,16 +266,97 @@ export default function PassengerApp() {
     const [issueDesc, setIssueDesc] = useState('');
     const [issueToast, setIssueToast] = useState('');
     const [issueSubmitting, setIssueSubmitting] = useState(false);
+    const [selectedRouteIndex, setSelectedRouteIndex] = useState(null);
+    const [selectedBus, setSelectedBus] = useState(null);
+
+    const busSteps = (result?.steps || [])
+        .map((step, index) => ({ step, index }))
+        .filter(({ step }) => step.mode === 'bus');
+    const selectedRouteEntry = busSteps.find(({ index }) => index === selectedRouteIndex) || null;
+    const selectedRouteCode = selectedRouteEntry?.step?.route_id
+        || selectedRouteEntry?.step?.route_short_name
+        || selectedRouteEntry?.step?.description?.match(/Route\s+([A-Za-z0-9-]+)/)?.[1]
+        || null;
+
+    useEffect(() => {
+        let ignore = false;
+
+        const loadRoutes = async () => {
+            try {
+                const routes = await api.getRoutes();
+                if (!ignore) setRouteCatalog(routes || []);
+            } catch {
+                if (!ignore) setRouteCatalog([]);
+            }
+        };
+
+        loadRoutes();
+        return () => { ignore = true; };
+    }, []);
+
+    useEffect(() => {
+        if (!result) {
+            setRouteLine([]);
+            setSelectedRouteLine([]);
+            return;
+        }
+
+        const fallbackLine = [];
+        if (result.origin?.lat && result.origin?.lon) fallbackLine.push([result.origin.lat, result.origin.lon]);
+        if (result.destination?.lat && result.destination?.lon) fallbackLine.push([result.destination.lat, result.destination.lon]);
+
+        const journeySteps = result.steps || [];
+        let fullJourneyLine = [];
+        let cursorPoint = result.origin?.lat && result.origin?.lon ? [result.origin.lat, result.origin.lon] : null;
+
+        if (cursorPoint) fullJourneyLine.push(cursorPoint);
+
+        journeySteps.forEach((step) => {
+            if (step.mode === 'bus') {
+                const segment = getBusSegment(step, routeCatalog);
+                fullJourneyLine = appendSegment(fullJourneyLine, segment);
+                if (segment.length) cursorPoint = segment[segment.length - 1];
+                return;
+            }
+
+            const fromPoint = getStopPoint(step.from, routeCatalog, cursorPoint);
+            const toPoint = getStopPoint(step.to, routeCatalog, cursorPoint);
+            const connector = [fromPoint, toPoint].filter(Boolean);
+            fullJourneyLine = appendSegment(fullJourneyLine, connector);
+            if (connector.length) cursorPoint = connector[connector.length - 1];
+        });
+
+        if (result.destination?.lat && result.destination?.lon) {
+            fullJourneyLine = appendSegment(fullJourneyLine, [[result.destination.lat, result.destination.lon]]);
+        }
+
+        setRouteLine(fullJourneyLine.length > 1 ? fullJourneyLine : fallbackLine);
+
+        if (selectedRouteEntry?.step?.mode === 'bus') {
+            const activeSegment = getBusSegment(selectedRouteEntry.step, routeCatalog);
+            setSelectedRouteLine(activeSegment);
+        } else {
+            setSelectedRouteLine([]);
+        }
+    }, [result, routeCatalog, selectedRouteEntry]);
 
     const submitIssue = useCallback(async () => {
-        if (!issueType) return;
+        if (!issueType || !selectedRouteEntry || !selectedBus) return;
         setIssueSubmitting(true);
         try {
-            await api.submitIssue({ lat: mapCenter[0], lon: mapCenter[1], type: issueType, description: issueDesc });
+            await api.submitIssue({
+                lat: mapCenter[0],
+                lon: mapCenter[1],
+                type: issueType,
+                description: issueDesc,
+                route_id: selectedRouteCode,
+                route_name: selectedRouteEntry.step.description || '',
+                bus_no: selectedBus.bus_no,
+            });
             setShowIssueModal(false);
             setIssueType('');
             setIssueDesc('');
-            setIssueToast('✅ Report submitted — operators notified!');
+            setIssueToast(`✅ Report submitted for ${selectedBus.bus_no} — operators notified!`);
             setTimeout(() => setIssueToast(''), 4000);
         } catch {
             setIssueToast('❌ Failed to submit. Try again.');
@@ -193,7 +364,7 @@ export default function PassengerApp() {
         } finally {
             setIssueSubmitting(false);
         }
-    }, [issueType, issueDesc, mapCenter]);
+    }, [issueType, issueDesc, mapCenter, selectedRouteCode, selectedRouteEntry, selectedBus]);
 
 
     const search = useCallback(async () => {
@@ -201,17 +372,43 @@ export default function PassengerApp() {
         setLoading(true);
         setError('');
         setResult(null);
+        setSelectedRouteIndex(null);
+        setSelectedBus(null);
         try {
             const timeMin = TIME_PRESETS[timePreset].timeMin;
             const res = await api.planRoute(origin, dest, timeMin);
             if (res.error) { setError(res.error); return; }
-            setResult(res);
+            // PS4: First/Last Mile Auto-Rickshaw & Traffic Delay Injection
+            if (res.steps) {
+                res.steps = res.steps.map((step, idx) => {
+                    // Check for first/last mile walk > 1km
+                    if (step.mode === 'walk' && step.distance_m > 1000 && (idx === 0 || idx === res.steps.length - 1)) {
+                        return {
+                            ...step,
+                            mode: 'auto',
+                            description: `Auto-Rickshaw to ${step.to || 'next stop'}`,
+                            duration_min: Math.max(3, Math.round((step.distance_m / 1000) * 4)), // ~15km/h
+                            fare: Math.round(20 + ((step.distance_m - 1000) / 1000) * 15) // ₹20 base + ₹15/km
+                        };
+                    }
+                    // Simulate traffic delay warning for bus steps if not already present
+                    if (step.mode === 'bus' && !step.traffic_delay_min) {
+                        const randomDelay = Math.random() > 0.7 ? Math.floor(Math.random() * 8) + 2 : 0;
+                        if (randomDelay > 0) return { ...step, traffic_delay_min: randomDelay, duration_min: step.duration_min + randomDelay };
+                    }
+                    return step;
+                });
+                // Recalculate total time if modified
+                res.total_time_min = res.steps.reduce((sum, s) => sum + s.duration_min, 0);
+            }
 
-            // Build polyline from origin → destination GPS
-            const line = [];
-            if (res.origin?.lat) line.push([res.origin.lat, res.origin.lon]);
-            if (res.destination?.lat) line.push([res.destination.lat, res.destination.lon]);
-            setRouteLine(line);
+            setResult(res);
+            const firstBusEntry = (res.steps || []).findIndex(step => step.mode === 'bus');
+            if (firstBusEntry >= 0) {
+                setSelectedRouteIndex(firstBusEntry);
+                setSelectedBus(res.steps[firstBusEntry]?.next_departures?.[0] || null);
+            }
+
             if (res.origin?.lat) setMapCenter([res.origin.lat, res.origin.lon]);
         } catch (e) {
             setError('Could not connect to backend. Make sure the server is running.');
@@ -390,7 +587,26 @@ export default function PassengerApp() {
                         </div>
                         {(result.steps || []).map((step, i) => (
                             <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
-                                <StepCard step={step} color="#1a6cf5" />
+                                <StepCard
+                                    step={step}
+                                    color="#1a6cf5"
+                                    selected={selectedRouteIndex === i}
+                                    selectedBusNo={selectedRouteIndex === i ? selectedBus?.bus_no || '' : ''}
+                                    onSelectStep={() => {
+                                        if (step.mode !== 'bus') return;
+                                        setSelectedRouteIndex(i);
+                                        setSelectedBus((currentBus) => {
+                                            if (selectedRouteIndex === i && currentBus) return currentBus;
+                                            return step.next_departures?.find((dep) => dep.bus_no === currentBus?.bus_no)
+                                                || step.next_departures?.[0]
+                                                || null;
+                                        });
+                                    }}
+                                    onSelectBus={(dep) => {
+                                        setSelectedRouteIndex(i);
+                                        setSelectedBus(dep);
+                                    }}
+                                />
                             </motion.div>
                         ))}
                     </motion.div>
@@ -441,12 +657,27 @@ export default function PassengerApp() {
 
                     {/* Route polyline */}
                     {routeLine.length > 1 && (
+                        <>
+                            <Polyline
+                                positions={routeLine}
+                                color="#ffffff"
+                                weight={12}
+                                opacity={0.95}
+                            />
+                            <Polyline
+                                positions={routeLine}
+                                color="#0f9d7a"
+                                weight={7}
+                                opacity={0.95}
+                            />
+                        </>
+                    )}
+                    {selectedRouteLine.length > 1 && (
                         <Polyline
-                            positions={routeLine}
-                            color="#1a6cf5"
-                            weight={5}
-                            opacity={0.8}
-                            dashArray="8,4"
+                            positions={selectedRouteLine}
+                            color={selectedRouteEntry?.step?.route_color || "#1a6cf5"}
+                            weight={9}
+                            opacity={1}
                         />
                     )}
 
@@ -478,14 +709,21 @@ export default function PassengerApp() {
                 </MapContainer>
 
                 {/* A5: Floating Report Issue button */}
-                <button onClick={() => setShowIssueModal(true)} style={{
+                <button onClick={() => {
+                    if (!selectedRouteEntry || !selectedBus) {
+                        setIssueToast('Select a route card and a bus first, then report the issue.');
+                        setTimeout(() => setIssueToast(''), 3000);
+                        return;
+                    }
+                    setShowIssueModal(true);
+                }} style={{
                     position: 'absolute', bottom: 24, right: 24, zIndex: 600,
-                    background: 'linear-gradient(135deg,#ff6f00,#ff9800)',
+                    background: selectedRouteEntry && selectedBus ? 'linear-gradient(135deg,#ff6f00,#ff9800)' : '#c0ccdf',
                     color: '#fff', border: 'none', borderRadius: '50px',
                     padding: '13px 20px', cursor: 'pointer', fontWeight: 800, fontSize: 13,
-                    boxShadow: '0 4px 20px rgba(255,111,0,0.5)',
+                    boxShadow: selectedRouteEntry && selectedBus ? '0 4px 20px rgba(255,111,0,0.5)' : 'none',
                     display: 'flex', alignItems: 'center', gap: 8,
-                    animation: 'pulse 2.5s infinite',
+                    animation: selectedRouteEntry && selectedBus ? 'pulse 2.5s infinite' : 'none',
                 }}>
                     <ShieldAlert size={16} /> Report Issue
                 </button>
@@ -512,9 +750,40 @@ export default function PassengerApp() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                     <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                        style={{ background: '#fff', borderRadius: 16, padding: '24px', width: 340, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                        style={{ background: '#fff', borderRadius: 16, padding: '24px', width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                         <div style={{ fontSize: 18, fontWeight: 800, color: '#0d1b3e', marginBottom: 4 }}>🚨 Report an Issue</div>
-                        <div style={{ fontSize: 11, color: '#9aafc4', marginBottom: 18 }}>Operators will be notified instantly</div>
+                        <div style={{ fontSize: 11, color: '#9aafc4', marginBottom: 12 }}>Choose the exact route and bus for this report.</div>
+                        {selectedRouteEntry && (
+                            <div style={{ marginBottom: 16, background: '#f8fafc', border: '1px solid rgba(15,40,90,0.1)', borderRadius: 12, padding: '12px' }}>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: '#1a6cf5', marginBottom: 4 }}>Selected Route</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b3e' }}>{selectedRouteEntry.step.description}</div>
+                                <div style={{ fontSize: 10, color: '#9aafc4', marginTop: 4 }}>
+                                    {selectedRouteEntry.step.from} → {selectedRouteEntry.step.to}
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: '#ff6f00', margin: '10px 0 6px' }}>Select Bus</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    {(selectedRouteEntry.step.next_departures || []).map((dep, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => setSelectedBus(dep)}
+                                            style={{
+                                                padding: '7px 10px',
+                                                borderRadius: 8,
+                                                border: selectedBus?.bus_no === dep.bus_no ? '1px solid #1a6cf5' : '1px solid rgba(15,40,90,0.12)',
+                                                background: selectedBus?.bus_no === dep.bus_no ? '#e8f0fe' : '#fff',
+                                                color: selectedBus?.bus_no === dep.bus_no ? '#1a6cf5' : '#4a5f80',
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            {dep.bus_no} • {dep.time}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
                             {['Overcrowded', 'Bus Not Arrived', 'Breakdown Seen', 'Safety Issue'].map(t => (
                                 <button key={t} onClick={() => setIssueType(t)} style={{
@@ -530,10 +799,10 @@ export default function PassengerApp() {
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1.5px solid rgba(15,40,90,0.15)', fontSize: 12, outline: 'none', resize: 'none', height: 70, boxSizing: 'border-box', fontFamily: 'Inter,sans-serif', marginBottom: 14 }} />
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button onClick={() => setShowIssueModal(false)} style={{ flex: 1, padding: '11px', borderRadius: 9, border: '1px solid rgba(15,40,90,0.15)', background: '#f8fafc', cursor: 'pointer', fontSize: 13, color: '#9aafc4', fontWeight: 600 }}>Cancel</button>
-                            <button onClick={submitIssue} disabled={!issueType || issueSubmitting} style={{
+                            <button onClick={submitIssue} disabled={!issueType || issueSubmitting || !selectedRouteEntry || !selectedBus} style={{
                                 flex: 2, padding: '11px', borderRadius: 9, border: 'none',
-                                background: issueType ? 'linear-gradient(135deg,#ff6f00,#ff9800)' : '#e8edf8',
-                                color: issueType ? '#fff' : '#9aafc4', cursor: issueType ? 'pointer' : 'not-allowed',
+                                background: issueType && selectedRouteEntry && selectedBus ? 'linear-gradient(135deg,#ff6f00,#ff9800)' : '#e8edf8',
+                                color: issueType && selectedRouteEntry && selectedBus ? '#fff' : '#9aafc4', cursor: issueType && selectedRouteEntry && selectedBus ? 'pointer' : 'not-allowed',
                                 fontWeight: 800, fontSize: 13,
                             }}>{issueSubmitting ? 'Submitting…' : '🚨 Submit Report'}</button>
                         </div>
